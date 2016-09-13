@@ -74,7 +74,7 @@ This path resolves to the same location as the value of the FilePath parameter, 
 * **FolderName**: Specifies the name of the folder that the RemoteApp program appears in on the Remote Desktop Web Access (RD Web Access) webpage and in the Start menu for subscribed RemoteApp and Desktop Connections.
 * **CommandLineSetting**: Specifies whether the RemoteApp program accepts command-line arguments from the client at connection time.
 * **RequiredCommandLine**: Specifies a string that contains command-line arguments that the client can use at connection time with the RemoteApp program.
-* **IconIndex**: Specifies the index within the icon file (specified by the IconPath parameter) where the RemoteApp program’s icon can be found.
+* **IconIndex**: Specifies the index within the icon file (specified by the IconPath parameter) where the RemoteApp programâ€™s icon can be found.
 * **IconPath**: Specifies the path to a file containing the icon to display for the RemoteApp program identified by the Alias parameter.
 * **UserGroups**: Specifies a domain group that can view the RemoteApp in RD Web Access, and in RemoteApp and Desktop Connections.
 To allow all users to see a RemoteApp program, provide a value of Null.
@@ -83,7 +83,15 @@ To allow all users to see a RemoteApp program, provide a value of Null.
 ## Versions
 
 ### Unreleased
-* Converted appveyor.yml to install Pester from PSGallery instead of from Chocolatey.
+
+* Added support for assigning multiple session hosts to the deployment at the same time
+
+* Changed the **SessionHost** parameter to **SessionHosts**
+
+*  Added the following resources
+    * **xRDGatewayConfiguration**
+    * **xRDLicenseConfiguration**
+    * **xRDServer**
 
 ### 1.2.0.0
 
@@ -117,59 +125,63 @@ param (
 [string]$collectionDescription
 )
 
-$localhost = [System.Net.Dns]::GetHostByName((hostname)).HostName
-
-if (!$collectionName) {$collectionName = "Tenant Jump Box"}
-if (!$collectionDescription) {$collectionDescription = "Remote Desktop instance for accessing an isolated network environment."}
-
-Configuration RemoteDesktopSessionHost
+configuration RDSDeployment
 {
-    param
-    (
-
-        # Connection Broker Name
+   param 
+    ( 
         [Parameter(Mandatory)]
+        [String]$domainName,
+
+        [Parameter(Mandatory)]
+        [PSCredential]$adminCreds,
+
+        # Connection Broker Node name
+        [String]$connectionBroker,
+        
+        # Web Access Node name
+        [String]$webAccessServer,
+
+        # Gateway external FQDN
+        [String]$externalFqdn,
+        
+        # RD Session Host count and naming prefix
+        [Int]$numberOfRdshInstances = 1,
+        [String]$sessionHostNamingPrefix = "SessionHost-",
+
+        # Collection Name
         [String]$collectionName,
 
-        # Connection Broker Description
-        [Parameter(Mandatory)]
-        [String]$collectionDescription,
+        # Connection Description
+        [String]$collectionDescription
 
-        # Connection Broker Node Name
-        [String]$connectionBroker,
+    ) 
 
-        # Web Access Node Name
-        [String]$webAccessServer
-    )
-    Import-DscResource -Module xRemoteDesktopSessionHost
-    if (!$connectionBroker) {$connectionBroker = $localhost}
-    if (!$connectionWebAccessServer) {$webAccessServer = $localhost}
+    Import-DscResource -ModuleName PSDesiredStateConfiguration -ModuleVersion 1.1
+    Import-DscResource -ModuleName xRemoteDesktopSessionHost
+   
+    $localhost = [System.Net.Dns]::GetHostByName((hostname)).HostName
 
-    Node "localhost"
+    $username = $adminCreds.UserName -split '\\' | select -last 1
+    $domainCreds = New-Object System.Management.Automation.PSCredential ("$domainName\$username", $adminCreds.Password)
+
+    if (-not $connectionBroker)   { $connectionBroker = $localhost }
+    if (-not $webAccessServer)    { $webAccessServer  = $localhost }
+
+    if ($sessionHostNamingPrefix)
+    { 
+        $sessionHosts = @( 0..($numberOfRdshInstances-1) | % { "$sessionHostNamingPrefix$_.$domainname"} )
+    }
+    else
     {
+        $sessionHosts = @( $localhost )
+    }
 
-        LocalConfigurationManager
-        {
-            RebootNodeIfNeeded = $true
-        }
+    if (-not $collectionName)         { $collectionName = "Desktop Collection" }
+    if (-not $collectionDescription)  { $collectionDescription = "A sample RD Session collection up in cloud." }
 
-        WindowsFeature Remote-Desktop-Services
-        {
-            Ensure = "Present"
-            Name = "Remote-Desktop-Services"
-        }
 
-        WindowsFeature RDS-RD-Server
-        {
-            Ensure = "Present"
-            Name = "RDS-RD-Server"
-        }
-
-        WindowsFeature Desktop-Experience
-        {
-            Ensure = "Present"
-            Name = "Desktop-Experience"
-        }
+    Node localhost
+    {
 
         WindowsFeature RSAT-RDS-Tools
         {
@@ -178,20 +190,40 @@ Configuration RemoteDesktopSessionHost
             IncludeAllSubFeature = $true
         }
 
-        if ($localhost -eq $connectionBroker) {
-            WindowsFeature RDS-Connection-Broker
-            {
-                Ensure = "Present"
-                Name = "RDS-Connection-Broker"
-            }
+        Registry RdmsEnableUILog
+        {
+            Ensure = "Present"
+            Key = "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\RDMS"
+            ValueName = "EnableUILog"
+            ValueType = "Dword"
+            ValueData = "1"
         }
-
-        if ($localhost -eq $webAccessServer) {
-            WindowsFeature RDS-Web-Access
-            {
-                Ensure = "Present"
-                Name = "RDS-Web-Access"
-            }
+ 
+        Registry EnableDeploymentUILog
+        {
+            Ensure = "Present"
+            Key = "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\RDMS"
+            ValueName = "EnableDeploymentUILog"
+            ValueType = "Dword"
+            ValueData = "1"
+        }
+ 
+        Registry EnableTraceLog
+        {
+            Ensure = "Present"
+            Key = "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\RDMS"
+            ValueName = "EnableTraceLog"
+            ValueType = "Dword"
+            ValueData = "1"
+        }
+ 
+        Registry EnableTraceToFile
+        {
+            Ensure = "Present"
+            Key = "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\RDMS"
+            ValueName = "EnableTraceToFile"
+            ValueType = "Dword"
+            ValueData = "1"
         }
 
         WindowsFeature RDS-Licensing
@@ -202,45 +234,84 @@ Configuration RemoteDesktopSessionHost
 
         xRDSessionDeployment Deployment
         {
-            SessionHost = $localhost
-            ConnectionBroker = if ($ConnectionBroker) {$ConnectionBroker} else {$localhost}
-            WebAccessServer = if ($WebAccessServer) {$WebAccessServer} else {$localhost}
-            DependsOn = "[WindowsFeature]Remote-Desktop-Services", "[WindowsFeature]RDS-RD-Server"
+
+            ConnectionBroker = $connectionBroker
+            WebAccessServer  = $webAccessServer
+
+            SessionHosts     = $sessionHosts
+
+            PsDscRunAsCredential = $domainCreds
         }
+
+
+        xRDServer AddLicenseServer
+        {
+            DependsOn = "[xRDSessionDeployment]Deployment"
+            
+            Role    = 'RDS-Licensing'
+            Server  = $connectionBroker
+
+            PsDscRunAsCredential = $domainCreds
+        }
+
+        xRDLicenseConfiguration LicenseConfiguration
+        {
+            DependsOn = "[xRDServer]AddLicenseServer"
+
+            ConnectionBroker = $connectionBroker
+            LicenseServers   = @( $connectionBroker )
+
+            LicenseMode = 'PerUser'
+
+            PsDscRunAsCredential = $domainCreds
+        }
+
+
+        xRDServer AddGatewayServer
+        {
+            DependsOn = "[xRDLicenseConfiguration]LicenseConfiguration"
+            
+            Role    = 'RDS-Gateway'
+            Server  = $webAccessServer
+
+            GatewayExternalFqdn = $externalFqdn
+
+            PsDscRunAsCredential = $domainCreds
+        }
+
+        xRDGatewayConfiguration GatewayConfiguration
+        {
+            DependsOn = "[xRDServer]AddGatewayServer"
+
+            ConnectionBroker = $connectionBroker
+            GatewayServer    = $webAccessServer
+
+            ExternalFqdn = $externalFqdn
+
+            GatewayMode = 'Custom'
+            LogonMethod = 'AllowUserToSelectDuringConnection'
+
+            UseCachedCredentials = $true
+            BypassLocal = $false
+
+            PsDscRunAsCredential = $domainCreds
+        } 
+        
 
         xRDSessionCollection Collection
         {
+            DependsOn = "[xRDGatewayConfiguration]GatewayConfiguration"
+
+            ConnectionBroker = $connectionBroker
+
             CollectionName = $collectionName
             CollectionDescription = $collectionDescription
-            SessionHost = $localhost
-            ConnectionBroker = if ($ConnectionBroker) {$ConnectionBroker} else {$localhost}
-            DependsOn = "[xRDSessionDeployment]Deployment"
+            
+            SessionHosts = $sessionHosts
+
+            PsDscRunAsCredential = $domainCreds
         }
-        xRDSessionCollectionConfiguration CollectionConfiguration
-        {
-        CollectionName = $collectionName
-        CollectionDescription = $collectionDescription
-        ConnectionBroker = if ($ConnectionBroker) {$ConnectionBroker} else {$localhost}        
-        TemporaryFoldersDeletedOnExit = $false
-        SecurityLayer = "SSL"
-        DependsOn = "[xRDSessionCollection]Collection"
-        }
-        xRDRemoteApp Calc
-        {
-        CollectionName = $collectionName
-        DisplayName = "Calculator"
-        FilePath = "C:\Windows\System32\calc.exe"
-        Alias = "calc"
-        DependsOn = "[xRDSessionCollection]Collection"
-        }
-        xRDRemoteApp Mstsc
-        {
-        CollectionName = $collectionName
-        DisplayName = "Remote Desktop"
-        FilePath = "C:\Windows\System32\mstsc.exe"
-        Alias = "mstsc"
-        DependsOn = "[xRDSessionCollection]Collection"
-        }
+
     }
 }
 
@@ -250,7 +321,7 @@ write-verbose "Collection Description: $collectionDescription"
 write-verbose "Connection Broker: $brokerFQDN"
 write-verbose "Web Access Server: $webFQDN"
 
-RemoteDesktopSessionHost -collectionName $collectionName -collectionDescription $collectionDescription -connectionBroker $brokerFQDN -webAccessServer $webFQDN -OutputPath .\RDSDSC\
+RDSDeployment -collectionName $collectionName -collectionDescription $collectionDescription -connectionBroker $brokerFQDN -webAccessServer $webFQDN -OutputPath .\RDSDSC\
 
 Set-DscLocalConfigurationManager -verbose -path .\RDSDSC\
 
