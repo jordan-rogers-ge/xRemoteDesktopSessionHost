@@ -41,25 +41,26 @@ function Get-TargetResource
         $collectionConnection = Get-RDSessionCollectionConfiguration -CollectionName $CollectionName -Connection
         $collectionSecurity = Get-RDSessionCollectionConfiguration -CollectionName $CollectionName -Security
         $collectionUserGroup = Get-RDSessionCollectionConfiguration -CollectionName $CollectionName -UserGroup
+
         @{
-        "CollectionName" = $collectionGeneral.CollectionName;
-        "ActiveSessionLimitMin" = $collectionConnection.ActiveSessionLimitMin;
-        "AuthenticateUsingNLA" = $collectionSecurity.AuthenticateUsingNLA;
-        "AutomaticReconnectionEnabled" = $collectionConnection.AutomaticReconnectionEnabled;
-        "BrokenConnectionAction" = $collectionConnection.BrokenConnectionAction;
-        "ClientDeviceRedirectionOptions" = $collectionClient.ClientDeviceRedirectionOptions;
-        "ClientPrinterAsDefault" = $collectionClient.ClientPrinterAsDefault;
-        "ClientPrinterRedirected" = $collectionClient.ClientPrinterRedirected;
-        "CollectionDescription" = $collectionGeneral.CollectionDescription;
-        "CustomRdpProperty" = $collectionGeneral.CustomRdpProperty;
-        "DisconnectedSessionLimitMin" = $collectionGeneral.DisconnectedSessionLimitMin;
-        "EncryptionLevel" = $collectionSecurity.EncryptionLevel;
-        "IdleSessionLimitMin" = $collectionConnection.IdleSessionLimitMin;
-        "MaxRedirectedMonitors" = $collectionClient.MaxRedirectedMonitors;
-        "RDEasyPrintDriverEnabled" = $collectionClient.RDEasyPrintDriverEnabled;
-        "SecurityLayer" = $collectionSecurity.SecurityLayer;
-        "TemporaryFoldersDeletedOnExit" = $collectionConnection.TemporaryFoldersDeletedOnExit;
-        "UserGroup" = $collectionUserGroup.UserGroup;
+            "CollectionName" = $collectionGeneral.CollectionName;
+            "ActiveSessionLimitMin" = $collectionConnection.ActiveSessionLimitMin;
+            "AuthenticateUsingNLA" = $collectionSecurity.AuthenticateUsingNLA;
+            "AutomaticReconnectionEnabled" = $collectionConnection.AutomaticReconnectionEnabled;
+            "BrokenConnectionAction" = $collectionConnection.BrokenConnectionAction;
+            "ClientDeviceRedirectionOptions" = $collectionClient.ClientDeviceRedirectionOptions;
+            "ClientPrinterAsDefault" = $collectionClient.ClientPrinterAsDefault;
+            "ClientPrinterRedirected" = $collectionClient.ClientPrinterRedirected;
+            "CollectionDescription" = $collectionGeneral.CollectionDescription;
+            "CustomRdpProperty" = $collectionGeneral.CustomRdpProperty;
+            "DisconnectedSessionLimitMin" = $collectionGeneral.DisconnectedSessionLimitMin;
+            "EncryptionLevel" = $collectionSecurity.EncryptionLevel;
+            "IdleSessionLimitMin" = $collectionConnection.IdleSessionLimitMin;
+            "MaxRedirectedMonitors" = $collectionClient.MaxRedirectedMonitors;
+            "RDEasyPrintDriverEnabled" = $collectionClient.RDEasyPrintDriverEnabled;
+            "SecurityLayer" = $collectionSecurity.SecurityLayer;
+            "TemporaryFoldersDeletedOnExit" = $collectionConnection.TemporaryFoldersDeletedOnExit;
+            "UserGroup" = $collectionUserGroup.UserGroup;
         }
 }
 
@@ -94,7 +95,7 @@ function Set-TargetResource
         [boolean] $TemporaryFoldersDeletedOnExit,
         [string] $UserGroup
     )
-    Write-Verbose "Setting DSC collection properties"
+    Write-Verbose "Setting RDSH collection properties"
     $discoveredCollectionName = Get-RDSessionCollection | % {Get-RDSessionHost $_.CollectionName} | ? {$_.SessionHost -ieq $localhost} | % {$_.CollectionName}
     if ($collectionName -ne $discoveredCollectionName) {$PSBoundParameters.collectionName = $discoveredCollectionName}
     Set-RDSessionCollectionConfiguration @PSBoundParameters
@@ -132,7 +133,7 @@ function Test-TargetResource
         [string] $UserGroup
     )
     
-    Write-Verbose "Testing DSC collection properties"
+    Write-Verbose "Testing RDSH collection properties"
     $collectionName = Get-RDSessionCollection | % {Get-RDSessionHost $_.CollectionName} | ? {$_.SessionHost -ieq $localhost} | % {$_.CollectionName}
     $PSBoundParameters.Remove("Verbose") | out-null
     $PSBoundParameters.Remove("Debug") | out-null

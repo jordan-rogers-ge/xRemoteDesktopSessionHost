@@ -1,5 +1,7 @@
 if (!(Test-xRemoteDesktopSessionHostOsRequirement)) { Throw "The minimum OS requirement was not met."}
+
 Import-Module RemoteDesktop
+
 
 #######################################################################
 # The Get-TargetResource cmdlet.
@@ -11,19 +13,58 @@ function Get-TargetResource
     param
     (    
         [parameter(Mandatory)]
-        [string] $SessionHost,
-        [parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [string] $ConnectionBroker,
-        [parameter(Mandatory)]
-        [string] $WebAccessServer
+        
+        [string] $WebAccessServer,
+        
+        [string[]] $SessionHosts
     )
-    Write-Verbose "Getting list of RD Server roles."
-        $Deployed = Get-RDServer -ErrorAction SilentlyContinue
+
+    $result = $null
+
+    write-verbose "Getting list of RD Server roles from '$ConnectionBroker'..."    
+
+    $servers = Get-RDServer -ConnectionBroker $ConnectionBroker -ea SilentlyContinue
+
+
+    if ($servers)
+    {
+        write-verbose "Found deployment consisting of $($servers.Count) servers:"
+      # write-verbose ( $servers | out-string )
+
+        $result = 
         @{
-        "SessionHost" = $Deployed | ? Roles -contains "RDS-RD-SERVER" | % Server;
-        "ConnectionBroker" = $Deployed | ? Roles -contains "RDS-CONNECTION-BROKER" | % Server;
-        "WebAccessServer" = $Deployed | ? Roles -contains "RDS-WEB-ACCESS" | % Server;
+            "ConnectionBroker" = ($servers | where Roles -contains "RDS-CONNECTION-BROKER").Server
+            "WebAccessServer"  = ($servers | where Roles -contains "RDS-WEB-ACCESS").Server
+            
+            "SessionHosts"   = $servers | where Roles -contains "RDS-RD-SERVER" | % Server
         }
+
+
+        write-verbose ">> RD Connection Broker:     $($result.ConnectionBroker.ToLower())"
+        
+        if ($result.WebAccessServer)
+        {
+            write-verbose ">> RD Web Access server:     $($result.WebAccessServer.ToLower())"
+        }
+        
+        write-verbose ">> RD Session Host servers:  $($result.SessionHosts.ToLower() -join '; ')"
+
+
+        $licenseServers = $servers | where Roles -contains "RDS-LICENSING" | % Server
+        
+        if ($licenseServers)
+        {
+            write-verbose ">> RD License servers  :     $($licenseServers.ToLower() -join '; ')"
+        }
+    }
+    else
+    {
+        write-verbose "Remote Desktop deployment does not exist on server '$ConnectionBroker' (or Remote Desktop Management Service is not running)."
+    }
+
+    $result
 }
 
 
@@ -31,22 +72,50 @@ function Get-TargetResource
 # The Set-TargetResource cmdlet.
 ########################################################################
 function Set-TargetResource
-
 {
     [CmdletBinding()]
     param
     (    
         [parameter(Mandatory)]
-        [string] $SessionHost,
-        [parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [string] $ConnectionBroker,
-        [parameter(Mandatory)]
-        [string] $WebAccessServer
+
+        [string] $WebAccessServer,
+
+        [string[]] $SessionHosts
     )
 
-    Write-Verbose "Initiating new RDSH deployment."
-    New-RDSessionDeployment @PSBoundParameters
-    $global:DSCMachineStatus = 1
+
+    if (-not $SessionHosts)  { $SessionHosts =  @( $ConnectionBroker ) }
+
+    
+    write-verbose "Initiating new RD Session-based deployment on '$ConnectionBroker'..."
+
+    write-verbose ">> RD Connection Broker:     $($ConnectionBroker.ToLower())"
+
+    if ($WebAccessServer)
+    {
+        write-verbose ">> RD Web Access server:     $($WebAccessServer.ToLower())"
+    }
+    else
+    {
+        $PSBoundParameters.Remove("WebAccessServer")
+    }
+
+    write-verbose ">> RD Session Host servers:  $($SessionHosts.ToLower() -join '; ')"
+
+
+    write-verbose "calling New-RdSessionDeployment cmdlet..."
+    #{
+        $PSBoundParameters.Remove("SessionHosts");  
+
+        New-RDSessionDeployment @PSBoundParameters -SessionHost $SessionHosts
+    #}
+    write-verbose "New-RdSessionDeployment done."
+
+ 
+  # write-verbose "RD Session deployment done, setting reboot flag..."
+  # $global:DSCMachineStatus = 1
 }
 
 
@@ -55,21 +124,38 @@ function Set-TargetResource
 #######################################################################
 function Test-TargetResource
 {
-      [CmdletBinding()]
-      [OutputType([System.Boolean])]
-      param
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param
     (    
         [parameter(Mandatory)]
-        [string] $SessionHost,
-        [parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [string] $ConnectionBroker,
-        [parameter(Mandatory)]
-        [string] $WebAccessServer
+
+        [string] $WebAccessServer,
+
+        [string[]] $SessionHosts
     )
-    Write-Verbose "Checking RDSH role is deployed on this node."
-    (Get-TargetResource @PSBoundParameters).SessionHost -ieq $SessionHost
+
+
+    write-verbose "Checking whether Remote Desktop deployment exists on server '$ConnectionBroker'..."
+
+    $rddeployment = Get-TargetResource @PSBoundParameters
+    
+    if ($rddeployment)
+    {
+        write-verbose "verifying RD Connection broker name..."
+        $result =  ($rddeployment.ConnectionBroker -ieq $ConnectionBroker)
+    }
+    else
+    {
+        write-verbose "RD deployment not found."
+        $result = $false
+    }
+
+    write-verbose "Test-TargetResource returning:  $result"
+    return $result
 }
 
 
 Export-ModuleMember -Function *-TargetResource
-
